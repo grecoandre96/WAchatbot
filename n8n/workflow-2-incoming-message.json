@@ -1,0 +1,186 @@
+{
+  "name": "WA Bot - Messaggio in arrivo",
+  "nodes": [
+    {
+      "parameters": { "httpMethod": "POST", "path": "wa-incoming", "responseMode": "responseNode", "options": {} },
+      "id": "twilio-wh", "name": "Twilio Webhook",
+      "type": "n8n-nodes-base.webhook", "typeVersion": 1, "position": [240, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT c.id, c.status, l.first_name, l.last_name, l.business_desc, l.phone FROM conversations c JOIN leads l ON l.id = c.lead_id WHERE l.phone = replace('{{ $json.body.From }}', 'whatsapp:', '') ORDER BY c.started_at DESC LIMIT 1;",
+        "options": {}
+      },
+      "id": "find-conv", "name": "Find Conversation",
+      "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "conditions": { "string": [{ "value1": "={{ $json[0].status }}", "operation": "equal", "value2": "completed" }] }
+      },
+      "id": "check-done", "name": "Already Completed?",
+      "type": "n8n-nodes-base.if", "typeVersion": 1, "position": [680, 400]
+    },
+    {
+      "parameters": { "respondWith": "text", "responseBody": "OK" },
+      "id": "stop", "name": "Stop",
+      "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1, "position": [900, 260]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO messages (conversation_id, direction, body, twilio_sid) VALUES ('{{ $('Find Conversation').first().json[0].id }}', 'inbound', '{{ $('Twilio Webhook').first().json.body.Body }}', '{{ $('Twilio Webhook').first().json.body.MessageSid }}');",
+        "options": {}
+      },
+      "id": "insert-inbound", "name": "Insert Inbound",
+      "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [900, 540]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT direction, body FROM messages WHERE conversation_id = '{{ $('Find Conversation').first().json[0].id }}' ORDER BY sent_at ASC;",
+        "options": {}
+      },
+      "id": "get-history", "name": "Get History",
+      "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [1120, 540]
+    },
+    {
+      "parameters": {
+        "jsCode": "const conv = $('Find Conversation').first().json[0];\nconst history = $input.all().map(i => i.json);\nconst clientName = $env.CLIENT_NAME || 'il nostro team';\n\nconst chatMessages = history.map(m => ({\n  role: m.direction === 'outbound' ? 'assistant' : 'user',\n  content: m.body\n}));\n\nconst systemPrompt = `Sei un assistente di qualificazione commerciale per ${clientName}.\\nIl lead si chiama ${conv.first_name} ${conv.last_name} e si occupa di: ${conv.business_desc}.\\nConduci la conversazione in italiano, in modo naturale e professionale.\\n\\nFai queste domande in sequenza (una alla volta, senza ripetere domande già poste):\\n1. Qual è la sfida principale che stai cercando di risolvere?\\n2. Hai già un budget allocato per questo tipo di soluzione?\\n3. In che arco di tempo vorresti vedere dei risultati?\\n4. Sei tu la persona che prende le decisioni su questo investimento?\\n\\nDopo aver raccolto le risposte a tutte le domande, assegna un punteggio da 0 a 10.\\n\\nRispondi SEMPRE e SOLO con JSON valido, senza markdown:\\n{\\\"message\\\": \\\"testo da inviare\\\", \\\"score\\\": null, \\\"is_final\\\": false}\\n\\nQuando hai tutte le informazioni:\\n{\\\"message\\\": \\\"messaggio finale senza link calendly\\\", \\\"score\\\": 8, \\\"is_final\\\": true}`;\n\nconst requestBody = JSON.stringify({\n  model: 'gpt-4o',\n  messages: [{ role: 'system', content: systemPrompt }, ...chatMessages],\n  response_format: { type: 'json_object' },\n  temperature: 0.7\n});\n\nreturn [{ json: {\n  requestBody,\n  conversation_id: conv.id,\n  phone: $('Twilio Webhook').first().json.body.From\n} }];"
+      },
+      "id": "build-prompt", "name": "Build GPT Prompt",
+      "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [1340, 540]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "contentType": "raw",
+        "body": "={{ $json.requestBody }}",
+        "options": {}
+      },
+      "id": "gpt4o", "name": "GPT-4o",
+      "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [1560, 540]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.choices[0].message.content;\nlet parsed;\ntry { parsed = JSON.parse(raw); } catch(e) {\n  const m = raw.match(/\\{[\\s\\S]*\\}/);\n  parsed = m ? JSON.parse(m[0]) : { message: raw, score: null, is_final: false };\n}\nconst prev = $('Build GPT Prompt').first().json;\nreturn [{ json: { ...parsed, conversation_id: prev.conversation_id, phone: prev.phone } }];"
+      },
+      "id": "parse-gpt", "name": "Parse GPT",
+      "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [1780, 540]
+    },
+    {
+      "parameters": {
+        "conditions": { "boolean": [{ "value1": "={{ $json.is_final }}", "operation": "equal", "value2": true }] }
+      },
+      "id": "is-final", "name": "Is Final?",
+      "type": "n8n-nodes-base.if", "typeVersion": 1, "position": [2000, 540]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.twilio.com/2010-04-01/Accounts/{{ $env.TWILIO_ACCOUNT_SID }}/Messages.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": { "parameters": [
+          { "name": "From", "value": "={{ $env.TWILIO_WHATSAPP_NUMBER }}" },
+          { "name": "To",   "value": "={{ $json.phone }}" },
+          { "name": "Body", "value": "={{ $json.message }}" }
+        ]},
+        "options": {}
+      },
+      "id": "send-interim", "name": "Send Interim WA",
+      "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [2220, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO messages (conversation_id, direction, body) VALUES ('{{ $('Parse GPT').first().json.conversation_id }}', 'outbound', '{{ $('Parse GPT').first().json.message }}');",
+        "options": {}
+      },
+      "id": "insert-interim", "name": "Insert Interim",
+      "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [2440, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nconst score = d.score;\nlet outcome, finalMessage;\nif (score >= 7) {\n  outcome = 'zoom_call';\n  finalMessage = `${d.message}\\n\\n📅 Prenota la tua call Zoom qui: ${$env.CALENDLY_ZOOM_LINK}`;\n} else if (score >= 4) {\n  outcome = 'voice_call';\n  finalMessage = `${d.message}\\n\\n📞 Prenota la tua chiamata qui: ${$env.CALENDLY_VOICE_LINK}`;\n} else {\n  outcome = 'not_qualified';\n  finalMessage = d.message;\n}\nreturn [{ json: { ...d, outcome, finalMessage } }];"
+      },
+      "id": "build-final", "name": "Build Final Message",
+      "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [2220, 680]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE conversations SET status='completed', score={{ $json.score }}, outcome='{{ $json.outcome }}', completed_at=now(), calendly_sent={{ $json.outcome !== 'not_qualified' }} WHERE id='{{ $json.conversation_id }}';",
+        "options": {}
+      },
+      "id": "update-conv", "name": "Update Conversation",
+      "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [2440, 680]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.twilio.com/2010-04-01/Accounts/{{ $env.TWILIO_ACCOUNT_SID }}/Messages.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": { "parameters": [
+          { "name": "From", "value": "={{ $env.TWILIO_WHATSAPP_NUMBER }}" },
+          { "name": "To",   "value": "={{ $('Build Final Message').first().json.phone }}" },
+          { "name": "Body", "value": "={{ $('Build Final Message').first().json.finalMessage }}" }
+        ]},
+        "options": {}
+      },
+      "id": "send-final", "name": "Send Final WA",
+      "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [2660, 680]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO messages (conversation_id, direction, body) VALUES ('{{ $('Build Final Message').first().json.conversation_id }}', 'outbound', '{{ $('Build Final Message').first().json.finalMessage }}');",
+        "options": {}
+      },
+      "id": "insert-final", "name": "Insert Final Message",
+      "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [2880, 680]
+    },
+    {
+      "parameters": { "respondWith": "text", "responseBody": "OK" },
+      "id": "respond-end", "name": "Respond End",
+      "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1, "position": [3100, 540]
+    }
+  ],
+  "connections": {
+    "Twilio Webhook":    { "main": [[{ "node": "Find Conversation",    "type": "main", "index": 0 }]] },
+    "Find Conversation": { "main": [[{ "node": "Already Completed?",   "type": "main", "index": 0 }]] },
+    "Already Completed?":{ "main": [
+      [{ "node": "Stop",            "type": "main", "index": 0 }],
+      [{ "node": "Insert Inbound",  "type": "main", "index": 0 }]
+    ]},
+    "Insert Inbound":    { "main": [[{ "node": "Get History",          "type": "main", "index": 0 }]] },
+    "Get History":       { "main": [[{ "node": "Build GPT Prompt",     "type": "main", "index": 0 }]] },
+    "Build GPT Prompt":  { "main": [[{ "node": "GPT-4o",              "type": "main", "index": 0 }]] },
+    "GPT-4o":            { "main": [[{ "node": "Parse GPT",           "type": "main", "index": 0 }]] },
+    "Parse GPT":         { "main": [[{ "node": "Is Final?",           "type": "main", "index": 0 }]] },
+    "Is Final?":         { "main": [
+      [{ "node": "Build Final Message", "type": "main", "index": 0 }],
+      [{ "node": "Send Interim WA",     "type": "main", "index": 0 }]
+    ]},
+    "Send Interim WA":       { "main": [[{ "node": "Insert Interim",      "type": "main", "index": 0 }]] },
+    "Insert Interim":        { "main": [[{ "node": "Respond End",         "type": "main", "index": 0 }]] },
+    "Build Final Message":   { "main": [[{ "node": "Update Conversation", "type": "main", "index": 0 }]] },
+    "Update Conversation":   { "main": [[{ "node": "Send Final WA",      "type": "main", "index": 0 }]] },
+    "Send Final WA":         { "main": [[{ "node": "Insert Final Message","type": "main", "index": 0 }]] },
+    "Insert Final Message":  { "main": [[{ "node": "Respond End",        "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}
