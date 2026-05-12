@@ -73,7 +73,7 @@ export async function GET(
       pool.query('SELECT * FROM leads WHERE id = $1', [conversation.lead_id]),
       pool.query(
         'SELECT * FROM messages WHERE conversation_id = $1 ORDER BY sent_at ASC',
-        [params.id]
+        [id]
       ),
     ])
 
