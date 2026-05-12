@@ -18,7 +18,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO conversations (lead_id) VALUES ('{{ $json[0].id }}') RETURNING id;",
+        "query": "INSERT INTO conversations (lead_id) VALUES ('{{ $json.id }}') RETURNING id;",
         "options": {}
       },
       "id": "insert-conv", "name": "Insert Conversation",
@@ -26,7 +26,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const lead = $('Insert Lead').first().json[0];\nconst convId = $input.first().json[0].id;\nconst msg = `Ciao ${lead.first_name}! 👋\\nHo visto che ti occupi di: ${lead.business_desc}.\\n\\nQual è la sfida principale che stai cercando di risolvere in questo momento?`;\nreturn [{ json: { to: lead.phone, message: msg, conversation_id: convId } }];"
+        "jsCode": "const lead = $('Insert Lead').first().json;\nconst convId = $input.first().json.id;\nconst msg = `Ciao ${lead.first_name}! 👋\\nHo visto che ti occupi di: ${lead.business_desc}.\\n\\nQual è la sfida principale che stai cercando di risolvere in questo momento?`;\nreturn [{ json: { to: lead.phone, message: msg, conversation_id: convId } }];"
       },
       "id": "build-msg", "name": "Build First Message",
       "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [900, 300]

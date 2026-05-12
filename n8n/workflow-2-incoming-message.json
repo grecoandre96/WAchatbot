@@ -17,7 +17,7 @@
     },
     {
       "parameters": {
-        "conditions": { "string": [{ "value1": "={{ $json[0].status }}", "operation": "equal", "value2": "completed" }] }
+        "conditions": { "string": [{ "value1": "={{ $json.status }}", "operation": "equal", "value2": "completed" }] }
       },
       "id": "check-done", "name": "Already Completed?",
       "type": "n8n-nodes-base.if", "typeVersion": 1, "position": [680, 400]
@@ -30,7 +30,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO messages (conversation_id, direction, body, twilio_sid) VALUES ('{{ $('Find Conversation').first().json[0].id }}', 'inbound', '{{ $('Twilio Webhook').first().json.body.Body }}', '{{ $('Twilio Webhook').first().json.body.MessageSid }}');",
+        "query": "INSERT INTO messages (conversation_id, direction, body, twilio_sid) VALUES ('{{ $('Find Conversation').first().json.id }}', 'inbound', '{{ $('Twilio Webhook').first().json.body.Body }}', '{{ $('Twilio Webhook').first().json.body.MessageSid }}');",
         "options": {}
       },
       "id": "insert-inbound", "name": "Insert Inbound",
@@ -39,7 +39,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT direction, body FROM messages WHERE conversation_id = '{{ $('Find Conversation').first().json[0].id }}' ORDER BY sent_at ASC;",
+        "query": "SELECT direction, body FROM messages WHERE conversation_id = '{{ $('Find Conversation').first().json.id }}' ORDER BY sent_at ASC;",
         "options": {}
       },
       "id": "get-history", "name": "Get History",
@@ -47,7 +47,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const conv = $('Find Conversation').first().json[0];\nconst history = $input.all().map(i => i.json);\nconst clientName = $env.CLIENT_NAME || 'il nostro team';\n\nconst chatMessages = history.map(m => ({\n  role: m.direction === 'outbound' ? 'assistant' : 'user',\n  content: m.body\n}));\n\nconst systemPrompt = `Sei un assistente di qualificazione commerciale per ${clientName}.\\nIl lead si chiama ${conv.first_name} ${conv.last_name} e si occupa di: ${conv.business_desc}.\\nConduci la conversazione in italiano, in modo naturale e professionale.\\n\\nFai queste domande in sequenza (una alla volta, senza ripetere domande già poste):\\n1. Qual è la sfida principale che stai cercando di risolvere?\\n2. Hai già un budget allocato per questo tipo di soluzione?\\n3. In che arco di tempo vorresti vedere dei risultati?\\n4. Sei tu la persona che prende le decisioni su questo investimento?\\n\\nDopo aver raccolto le risposte a tutte le domande, assegna un punteggio da 0 a 10.\\n\\nRispondi SEMPRE e SOLO con JSON valido, senza markdown:\\n{\\\"message\\\": \\\"testo da inviare\\\", \\\"score\\\": null, \\\"is_final\\\": false}\\n\\nQuando hai tutte le informazioni:\\n{\\\"message\\\": \\\"messaggio finale senza link calendly\\\", \\\"score\\\": 8, \\\"is_final\\\": true}`;\n\nconst requestBody = JSON.stringify({\n  model: 'gpt-4o',\n  messages: [{ role: 'system', content: systemPrompt }, ...chatMessages],\n  response_format: { type: 'json_object' },\n  temperature: 0.7\n});\n\nreturn [{ json: {\n  requestBody,\n  conversation_id: conv.id,\n  phone: $('Twilio Webhook').first().json.body.From\n} }];"
+        "jsCode": "const conv = $('Find Conversation').first().json;\nconst history = $input.all().map(i => i.json);\nconst clientName = $env.CLIENT_NAME || 'il nostro team';\n\nconst chatMessages = history.map(m => ({\n  role: m.direction === 'outbound' ? 'assistant' : 'user',\n  content: m.body\n}));\n\nconst systemPrompt = `Sei un assistente di qualificazione commerciale per ${clientName}.\\nIl lead si chiama ${conv.first_name} ${conv.last_name} e si occupa di: ${conv.business_desc}.\\nConduci la conversazione in italiano, in modo naturale e professionale.\\n\\nFai queste domande in sequenza (una alla volta, senza ripetere domande già poste):\\n1. Qual è la sfida principale che stai cercando di risolvere?\\n2. Hai già un budget allocato per questo tipo di soluzione?\\n3. In che arco di tempo vorresti vedere dei risultati?\\n4. Sei tu la persona che prende le decisioni su questo investimento?\\n\\nDopo aver raccolto le risposte a tutte le domande, assegna un punteggio da 0 a 10.\\n\\nRispondi SEMPRE e SOLO con JSON valido, senza markdown:\\n{\\\"message\\\": \\\"testo da inviare\\\", \\\"score\\\": null, \\\"is_final\\\": false}\\n\\nQuando hai tutte le informazioni:\\n{\\\"message\\\": \\\"messaggio finale senza link calendly\\\", \\\"score\\\": 8, \\\"is_final\\\": true}`;\n\nconst requestBody = JSON.stringify({\n  model: 'gpt-4o',\n  messages: [{ role: 'system', content: systemPrompt }, ...chatMessages],\n  response_format: { type: 'json_object' },\n  temperature: 0.7\n});\n\nreturn [{ json: {\n  requestBody,\n  conversation_id: conv.id,\n  phone: $('Twilio Webhook').first().json.body.From\n} }];"
       },
       "id": "build-prompt", "name": "Build GPT Prompt",
       "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [1340, 540]
