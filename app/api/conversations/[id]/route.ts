@@ -56,12 +56,13 @@ const MOCK_DETAIL: Record<string, object> = {
 
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   try {
     const convResult = await pool.query(
       'SELECT * FROM conversations WHERE id = $1',
-      [params.id]
+      [id]
     )
     if (!convResult.rows.length) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -82,7 +83,7 @@ export async function GET(
       messages: messagesResult.rows,
     })
   } catch {
-    const mock = MOCK_DETAIL[params.id]
+    const mock = MOCK_DETAIL[id]
     if (!mock) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     return NextResponse.json(mock)
   }

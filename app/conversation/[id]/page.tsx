@@ -27,8 +27,9 @@ async function fetchConversationData(id: string) {
   }
 }
 
-export default async function ConversationPage({ params }: { params: { id: string } }) {
-  const data = await fetchConversationData(params.id)
+export default async function ConversationPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const data = await fetchConversationData(id)
   if (!data) notFound()
   const { conversation, lead, messages } = data
 
