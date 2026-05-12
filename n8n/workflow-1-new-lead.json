@@ -1,0 +1,79 @@
+{
+  "name": "WA Bot - Nuovo Lead",
+  "nodes": [
+    {
+      "parameters": { "httpMethod": "POST", "path": "new-lead", "responseMode": "responseNode", "options": {} },
+      "id": "webhook", "name": "Webhook",
+      "type": "n8n-nodes-base.webhook", "typeVersion": 1, "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO leads (first_name, last_name, email, phone, business_desc) VALUES ('{{ $json.body.first_name }}', '{{ $json.body.last_name }}', '{{ $json.body.email }}', '{{ $json.body.phone }}', '{{ $json.body.business_desc }}') RETURNING id, first_name, business_desc, phone;",
+        "options": {}
+      },
+      "id": "insert-lead", "name": "Insert Lead",
+      "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversations (lead_id) VALUES ('{{ $json[0].id }}') RETURNING id;",
+        "options": {}
+      },
+      "id": "insert-conv", "name": "Insert Conversation",
+      "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $('Insert Lead').first().json[0];\nconst convId = $input.first().json[0].id;\nconst msg = `Ciao ${lead.first_name}! 👋\\nHo visto che ti occupi di: ${lead.business_desc}.\\n\\nQual è la sfida principale che stai cercando di risolvere in questo momento?`;\nreturn [{ json: { to: lead.phone, message: msg, conversation_id: convId } }];"
+      },
+      "id": "build-msg", "name": "Build First Message",
+      "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.twilio.com/2010-04-01/Accounts/{{ $env.TWILIO_ACCOUNT_SID }}/Messages.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "From", "value": "={{ $env.TWILIO_WHATSAPP_NUMBER }}" },
+            { "name": "To", "value": "=whatsapp:{{ $json.to }}" },
+            { "name": "Body", "value": "={{ $json.message }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-wa", "name": "Send WA",
+      "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO messages (conversation_id, direction, body, twilio_sid) VALUES ('{{ $('Build First Message').first().json.conversation_id }}', 'outbound', '{{ $('Build First Message').first().json.message }}', '{{ $json.sid }}');",
+        "options": {}
+      },
+      "id": "insert-msg", "name": "Insert Outbound Message",
+      "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [1340, 300]
+    },
+    {
+      "parameters": { "respondWith": "text", "responseBody": "OK" },
+      "id": "respond", "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1, "position": [1560, 300]
+    }
+  ],
+  "connections": {
+    "Webhook":               { "main": [[{ "node": "Insert Lead",            "type": "main", "index": 0 }]] },
+    "Insert Lead":           { "main": [[{ "node": "Insert Conversation",    "type": "main", "index": 0 }]] },
+    "Insert Conversation":   { "main": [[{ "node": "Build First Message",    "type": "main", "index": 0 }]] },
+    "Build First Message":   { "main": [[{ "node": "Send WA",               "type": "main", "index": 0 }]] },
+    "Send WA":               { "main": [[{ "node": "Insert Outbound Message","type": "main", "index": 0 }]] },
+    "Insert Outbound Message": { "main": [[{ "node": "Respond",             "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}
