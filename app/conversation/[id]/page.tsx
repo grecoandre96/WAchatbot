@@ -9,17 +9,28 @@ const outcomeLabel: Record<string, string> = {
   not_qualified: 'Non qualificato',
 }
 
-export default async function ConversationPage({ params }: { params: { id: string } }) {
-  const convResult = await pool.query('SELECT * FROM conversations WHERE id = $1', [params.id])
-  if (!convResult.rows.length) notFound()
-  const conversation = convResult.rows[0]
+// Mock data per demo senza DB — rimosso in produzione
+async function fetchConversationData(id: string) {
+  try {
+    const convResult = await pool.query('SELECT * FROM conversations WHERE id = $1', [id])
+    if (!convResult.rows.length) return null
+    const conversation = convResult.rows[0]
+    const [leadResult, messagesResult] = await Promise.all([
+      pool.query('SELECT * FROM leads WHERE id = $1', [conversation.lead_id]),
+      pool.query('SELECT * FROM messages WHERE conversation_id = $1 ORDER BY sent_at ASC', [id]),
+    ])
+    return { conversation, lead: leadResult.rows[0], messages: messagesResult.rows }
+  } catch {
+    const res = await fetch(`http://localhost:3000/api/conversations/${id}`, { cache: 'no-store' })
+    if (!res.ok) return null
+    return res.json()
+  }
+}
 
-  const [leadResult, messagesResult] = await Promise.all([
-    pool.query('SELECT * FROM leads WHERE id = $1', [conversation.lead_id]),
-    pool.query('SELECT * FROM messages WHERE conversation_id = $1 ORDER BY sent_at ASC', [params.id]),
-  ])
-  const lead = leadResult.rows[0]
-  const messages = messagesResult.rows
+export default async function ConversationPage({ params }: { params: { id: string } }) {
+  const data = await fetchConversationData(params.id)
+  if (!data) notFound()
+  const { conversation, lead, messages } = data
 
   return (
     <main className="min-h-screen bg-gray-50">
